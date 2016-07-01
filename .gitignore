@@ -33,3 +33,6 @@
 /lcov/
 /src
 /mapfile
+# 编译结果
+/Build
+/Output
