@@ -234,8 +234,7 @@ typedef struct H264ParamSets {
     AVBufferRef *sps_ref;
     /* currently active parameters sets */
     const PPS *pps;
-    // FIXME this should properly be const
-    SPS *sps;
+    const SPS *sps;
 } H264ParamSets;
 
 /**
@@ -376,6 +375,7 @@ typedef struct H264SliceContext {
     int mb_skip_run;
     int is_complex;
 
+    int picture_structure;
     int mb_field_decoding_flag;
     int mb_mbaff;               ///< mb_aff_frame && mb_field_decoding_flag
 
@@ -412,6 +412,8 @@ typedef struct H264SliceContext {
         uint32_t val;
     } ref_modifications[2][32];
     int nb_ref_modifications[2];
+
+    unsigned int pps_id;
 
     const uint8_t *intra_pcm_ptr;
     int16_t *dc_val_base;
@@ -454,6 +456,10 @@ typedef struct H264SliceContext {
     CABACContext cabac;
     uint8_t cabac_state[1024];
     int cabac_init_idc;
+
+    MMCO mmco[MAX_MMCO_COUNT];
+    int  nb_mmco;
+    int explicit_ref_marking;
 } H264SliceContext;
 
 /**
@@ -601,6 +607,7 @@ typedef struct H264Context {
     MMCO mmco[MAX_MMCO_COUNT];
     int  nb_mmco;
     int mmco_reset;
+    int explicit_ref_marking;
 
     int long_ref_count;     ///< number of actual long term references
     int short_ref_count;    ///< number of actual short term references
@@ -668,7 +675,7 @@ typedef struct H264Context {
 
     int missing_fields;
 
-/* for frame threading, this is set to 1
+    /* for frame threading, this is set to 1
      * after finish_setup() has been called, so we cannot modify
      * some context properties (which are supposed to stay constant between
      * slices) anymore */
@@ -727,12 +734,10 @@ void ff_h264_remove_all_refs(H264Context *h);
 /**
  * Execute the reference picture marking (memory management control operations).
  */
-int ff_h264_execute_ref_pic_marking(H264Context *h, MMCO *mmco, int mmco_count);
+int ff_h264_execute_ref_pic_marking(H264Context *h);
 
-int ff_h264_decode_ref_pic_marking(H264Context *h, GetBitContext *gb,
-                                   int first_slice);
-
-int ff_generate_sliding_window_mmcos(H264Context *h, int first_slice);
+int ff_h264_decode_ref_pic_marking(const H264Context *h, H264SliceContext *sl,
+                                   GetBitContext *gb);
 
 void ff_h264_hl_decode_mb(const H264Context *h, H264SliceContext *sl);
 int ff_h264_decode_init(AVCodecContext *avctx);
@@ -835,9 +840,9 @@ static av_always_inline uint16_t pack8to16(unsigned a, unsigned b)
 /**
  * Get the chroma qp.
  */
-static av_always_inline int get_chroma_qp(const H264Context *h, int t, int qscale)
+static av_always_inline int get_chroma_qp(const PPS *pps, int t, int qscale)
 {
-    return h->ps.pps->chroma_qp_table[t][qscale];
+    return pps->chroma_qp_table[t][qscale];
 }
 
 /**
@@ -989,7 +994,8 @@ int ff_h264_slice_context_init(H264Context *h, H264SliceContext *sl);
 
 void ff_h264_draw_horiz_band(const H264Context *h, H264SliceContext *sl, int y, int height);
 
-int ff_h264_decode_slice_header(H264Context *h, H264SliceContext *sl);
+int ff_h264_decode_slice_header(H264Context *h, H264SliceContext *sl,
+                                const H2645NAL *nal);
 #define SLICE_SINGLETHREAD 1
 #define SLICE_SKIPED 2
 
